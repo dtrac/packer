@@ -1,0 +1,130 @@
+{
+    "builders": [
+        {
+            "type": "vmware-iso",
+            "headless": true,
+            "boot_wait": "2m",
+            "iso_url": "{{user `iso_url`}}",
+            "iso_checksum": "{{user `iso_checksum`}}",
+            "iso_checksum_type": "md5",
+            "output_directory": "output-{{user `vm_name`}}",
+            "vnc_port_min": "{{user `vnc_port_min`}}",
+            "vnc_port_max": "{{user `vnc_port_max`}}",
+            "vnc_disable_password": true,
+            "communicator": "winrm",
+            "winrm_username": "Administrator",
+            "winrm_password": "<REDACTED>",
+            "winrm_timeout": "24h",
+            "shutdown_command": "shutdown /s /t 10 /f /d p:4:1 /c \"Template Build Complete\"",
+            "shutdown_timeout": "30m",
+            "vm_name": "{{user `vm_name`}}",
+            "vmdk_name": "{{user `os_name`}}_template",
+            "guest_os_type": "{{user `guest_os_type`}}",
+            "version": "11",
+            "disk_size": "61440",
+            "disk_type_id": "4",
+            "floppy_files": [
+                "./scripts/floppy/common/vmware.cer",
+                "./scripts/floppy/{{user `os_name`}}/Autounattend.xml",
+                "./scripts/floppy/common/pvscsi"
+            ],
+            "vmx_data": {
+                "annotation": "{{user `vm_name`}} - Build Date: {{isotime \"2006-01-02\"}} - Template Version: {{user `template_version`}}",
+                "memsize": "6144",
+                "numvcpus": "2",
+                "scsi0.virtualDev":"{{user `scsi_type`}}"
+            },
+            "vmx_data_post":{
+                "virtualHW.version":"13",
+                "memsize":"2048",
+                "numvcpus":"1",
+                "mem.hotadd":"true",
+                "vcpu.hotadd":"true",
+                "ethernet0.addressType":"vpx",
+                "ethernet0.virtualDev":"vmxnet3",
+                "ide1:0.clientDevice":"TRUE",
+                "isolation.tools.unity.push.update.disable":"TRUE",
+                "isolation.tools.ghi.launchmenu.change":"TRUE",
+                "isolation.tools.memSchedFakeSampleStats.disable":"TRUE",
+                "isolation.tools.getCreds.disable":"TRUE",
+                "isolation.tools.ghi.autologon.disable":"TRUE",
+                "isolation.bios.bbs.disable":"TRUE",
+                "isolation.tools.hgfsServerSet.disable":"TRUE",
+                "isolation.monitor.control.disable":"TRUE",
+                "isolation.tools.autoInstall.disable":"TRUE",
+                "isolation.tools.diskShrink.disable":"TRUE",
+                "isolation.tools.diskWiper.disable":"TRUE",
+                "isolation.device.connectable.disable":"TRUE",
+                "isolation.device.edit.disable":"TRUE",
+                "RemoteDisplay.maxConnections":"1",
+                "tools.setInfo.sizeLimit":"1048576",
+                "log.keepOld":"10",
+                "log.rotateSize":"100000",
+                "tools.upgrade.policy":"Manual"
+            }
+        }
+    ],
+    "provisioners": [
+        {
+            "type": "file",
+            "source": "./scripts/dsc/ansibleFactsConfiguration.ps1",
+            "destination": "C:\\Temp\\ansibleFactsConfiguration.ps1"
+        },
+        {
+            "type": "file",
+            "source": "./scripts/common/gather_facts.ps1",
+            "destination": "C:\\Windows\\System32\\gather_facts.ps1"
+        },
+        {
+            "type": "file",
+            "source": "./scripts/dsc/BaseOsConfigurationDSC.ps1",
+            "destination": "C:\\Temp\\BaseOsConfigurationDSC.ps1"
+        },
+        {
+            "type": "file",
+            "source": "./scripts/floppy/common/Dtrac.cer",
+            "destination": "C:\\Temp\\Dtrac.cer"
+        },
+        {
+            "type": "powershell",
+            "scripts": [
+                "./scripts/common/install-choco.ps1"
+            ]
+        },
+        {
+            "type": "powershell",
+            "inline": [
+                "Set-Location C:\\Temp ; . .\\ansibleFactsConfiguration.ps1 ; ansibleFactsConfiguration -template_version {{user `template_version`}} -isotime {{isotime \"2006-01-02\"}}",
+                "Start-DSCConfiguration -Path .\\ansibleFactsConfiguration -Wait -Verbose -Force ; Remove-DscConfigurationDocument -Stage Current",
+                "choco source add -n {{user `choco_repo_name`}} -s {{user `choco_repo_url` }} ; choco source remove -n chocolatey",
+                "choco install 7zip dotnet4.5 powershell vmware-tools cchoco CertificateDsc ComputerManagementDsc NetworkingDsc PSWindowsUpdate xpsdesiredstateconfiguration git.install -y",
+                "Set-Location C:\\Temp ; . .\\BaseOSConfigurationDSC.ps1 ; BaseOsConfiguration",
+                "Start-DSCConfiguration -Path .\\BaseOsConfiguration -Wait -Verbose -Force ; Remove-DscConfigurationDocument -Stage Current"
+            ],
+            "valid_exit_codes": [
+                0,3010
+            ]
+        },
+        {
+            "type":"powershell",
+            "scripts":[
+               "./scripts/common/update-windows.ps1"
+            ]
+         },
+         {
+            "type":"windows-restart",
+            "restart_timeout":"60m"
+         },
+         {
+            "type":"powershell",
+            "scripts":[
+                "./scripts/common/compact-cdrive.ps1"
+            ]
+        }
+    ],
+    "post-processors":[
+        {
+           "type":"manifest"
+        }
+     ]
+}
